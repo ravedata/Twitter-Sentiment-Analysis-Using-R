@@ -1,0 +1,156 @@
+---
+title: "Twitter_Analysis"
+author: "Vedant"
+date: "June 9, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Authenticating Twitter
+
+```{r}
+setwd ("C:/vedant/StatisticalLearning/Twitter_Analysis")
+library(twitteR)
+library(ROAuth)
+consumerKey = "5pdz5NUS6JC6mbQROBe0f12bD"
+consumerSecret = "ZuiaHYqQmwKjRFfjqNo3IPnrvQTBZDAPhkW4CJrOFtC6atLDQU"
+accessToken = "181626111-0P6CUE2h4hgdGUIH9pgdAUDvJ14ubtOZ83wPouYA"
+accessSecret = "OnZ1VlUqhpuCy6UYg2ZEaiSs14sD2xJfA7Av6w5rbLZ7X"
+
+##download.file(url="http://curl.haxx.se/ca/cacert.pem", destfile="cacert.pem") #downloads the certificate
+
+setup_twitter_oauth(consumerKey, consumerSecret, accessToken, accessSecret)
+
+cred <- OAuthFactory$new(consumerKey=consumerKey, 
+	consumerSecret=consumerSecret,
+	requestURL='https://api.twitter.com/oauth/request_token',
+	accessURL='https://api.twitter.com/oauth/access_token',
+	authURL='https://api.twitter.com/oauth/authorize')
+
+cred$handshake(cainfo="cacert.pem") ##4867698
+
+
+
+```
+
+## Search the Twitter
+
+
+```{r}
+cT.tweets = searchTwitter('#CT17+ Kohli',n =1000,since = "2017-06-07",until = "2017-06-11",lang = "en",resultType = "recent")
+
+## convert to dataframe
+df = do.call("rbind",lapply(cT.tweets,as.data.frame))
+
+## Use the TM package for cleaning the tweets
+library(tm)
+df_tweets = df$text
+df_Corpus = Corpus(VectorSource(df_tweets))
+
+```
+
+
+## Let us clean the tweets
+
+
+
+
+```{r}
+## Remove emoticons
+
+removeEmoticon = content_transformer(function(x) iconv(x, "latin1", "ASCII", sub=""))
+tweets_clean = tm_map(df_Corpus,removeEmoticon)
+##Remove Urls
+
+removeURL <- content_transformer(function(x) gsub("https?:\\/\\/(.*?|\\/)(?=\\s|$)\\s?", "", x, perl=T))
+tweets_clean = tm_map(tweets_clean,removeURL)
+
+## Remove Punctuations
+tweets_clean = tm_map(tweets_clean,removePunctuation)
+## Convert tweets to lower case
+tweets_clean = tm_map(tweets_clean,content_transformer(tolower))
+## Remove the stopwords of English
+tweets_clean = tm_map(tweets_clean,removeWords,stopwords("English"))
+
+## Remove any white Space
+tweets_clean = tm_map(tweets_clean,stripWhitespace)
+## Further Cleaning 
+tweets_clean = tm_map(tweets_clean,removeWords,c("#CT17","ct17","icc","Kohli","kohli","Virat","imvkohli","virat","rt","https"))
+
+```
+
+
+## Lets do some sentiment analysis
+
+
+```{r}
+## Convert the content of corpus into a dataframe
+
+df_cleanedTweets <-  data.frame(text=get("content", tweets_clean), 
+    stringsAsFactors=F)
+list_cleanedTweets = as.list(df_cleanedTweets$text)
+
+##Stringr package is needed to do string manipulations
+library(stringr)
+## Trim  extra white spaces
+list_cleanedTweets = lapply(list_cleanedTweets,function(x) gsub(pattern = "\\s+"," ",str_trim(x)))
+## Split the sentence to separate words 
+list_cleanedTweets = lapply(list_cleanedTweets,function(x) strsplit(x,split = " "))
+
+## Convert the list to list of characters
+unlist_CleanedTweets = sapply(list_cleanedTweets,unlist)
+
+## give some meaningful name to variables
+
+Kohlitweets = unlist_CleanedTweets
+
+##Load Positive words and negative words here
+getwd()
+pos.words = scan("positive-words.txt",what = "character",comment.char = ";")
+neg.words = scan("negative-words.txt",what = "character",comment.char = ";")
+## let us try to get the positive scores
+
+pos.scores = lapply(Kohlitweets,function(x){sum(!is.na(match(x,pos.words)))})
+## let us try to get the negative scores
+neg.scores = lapply(Kohlitweets,function(x){sum(!is.na(match(x,neg.words)))})
+## let us try to get the net sentiment scores
+net.scores = lapply(Kohlitweets,function(x){sum(!is.na(match(x,pos.words)))-sum(!is.na(match(x,neg.words)))})
+
+## Lets unlist all the positive scores,negative scores and net scores
+
+positive = unlist(pos.scores) ## This gives vector of integers
+negative = unlist(neg.scores) ## This gives vector of integers
+netSentiment = unlist(net.scores)## This gives vector of integers
+
+## Let us name all tweets with postive , negative and Neutral
+netSentiment[netSentiment>0]="Positive"
+netSentiment[netSentiment<0]="Negative"
+netSentiment = ifelse(netSentiment=="0","Neutral",netSentiment)
+## Convert the net sentiment to factor variable
+netSentiment = as.factor(netSentiment)
+## See the percentage of sentiment using the following command
+prop.table(table(netSentiment))
+
+```
+
+Let us visualize the sentiment for Kohli from 7th June 2017 to 11th June 2017
+
+```{r}
+library(ggplot2)
+
+ggp <- ggplot(data.frame(netSentiment),aes(x=netSentiment))
+# counts
+ggp = ggp +geom_bar(aes(fill= netSentiment,y=((..count..)/sum(..count..))*100))
+
+ggp = ggp+ labs(title =" Twitter sentiment for Virat Kohli from 7th-11th June 2017", x = "Sentiments", y = "Sentiments in percentage") + theme(plot.title = element_text(hjust = 0.5))
+
+red.bold.italic.text <- element_text(face = "bold.italic", color = "blue")
+
+ggp + theme(title = red.bold.italic.text, axis.title = red.bold.italic.text)
+# proportion
+
+```
+
